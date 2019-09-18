@@ -39,18 +39,23 @@ BASE_URL = 'https://www.instagram.com/jaychou/'
 img_urls = []
 video_urls = []
 
+user_id = ''
+
 NAME_REFE = '?_nc_ht='
 
 TARGET_STR = '{end_cursor}'
-PAGE_URL = 'https://www.instagram.com/graphql/query/?query_hash=58b6785bea111c67129decbe6a448951&variables=%7B%22id%22%3A%225951385086%22%2C%22first%22%3A12%2C%22after%22%3A%22'+TARGET_STR+'%3D%3D%22%7D'
+TARGET_ID_STR = '{user_id}'
+PAGE_URL = 'https://www.instagram.com/graphql/query/?query_hash=58b6785bea111c67129decbe6a448951&variables=%7B%22id%22%3A%22'+TARGET_ID_STR+'%22%2C%22first%22%3A12%2C%22after%22%3A%22'+TARGET_STR+'%3D%3D%22%7D'
 
 TARGET_SHORTCODE_STR = '{shortcode}'
 SIDECAR_URL = 'https://www.instagram.com/graphql/query/?query_hash=865589822932d1b43dfe312121dd353a&variables=%7B%22shortcode%22%3A%22'+TARGET_SHORTCODE_STR+'%22%2C%22child_comment_count%22%3A3%2C%22fetch_comment_count%22%3A40%2C%22parent_comment_count%22%3A24%2C%22has_threaded_comments%22%3Atrue%7D'
 
 
-def getNextURL(str_source):
+def getNextURL(id, str_source):
     #click.echo(str_source)
-    return PAGE_URL.replace(TARGET_STR, str_source[:-2])
+    res = PAGE_URL.replace(TARGET_STR, str_source[:-2])
+    res = res.replace(TARGET_ID_STR, id)
+    return res
 
 def open_json(tar):
     js = None
@@ -200,11 +205,14 @@ def parse_typename(typename, node, from_entry):
             
 def js_process(js_data):
     
+    global user_id
     from_entry = True
+
     try:
-        edges = js_data['entry_data']['ProfilePage'][0]['graphql']['user']['edge_owner_to_timeline_media']['edges']
-        page_info = js_data['entry_data']['ProfilePage'][0]['graphql']['user']['edge_owner_to_timeline_media']['page_info']    
-    
+        user = js_data['entry_data']['ProfilePage'][0]['graphql']['user']
+        edges = user['edge_owner_to_timeline_media']['edges']
+        page_info = user['edge_owner_to_timeline_media']['page_info']    
+        user_id = user['id']
     except:
         edges = js_data['data']['user']['edge_owner_to_timeline_media']['edges']
         page_info = js_data['data']['user']['edge_owner_to_timeline_media']['page_info']
@@ -230,8 +238,10 @@ def parseURL(parse_url):
 
         page_info = js_process(js_data)
 
+        click.echo('parsing user id is '+user_id)
+
         if page_info['has_next_page'] == True and PIC_ROLL != ROLL_MAX:
-            nextUrl = getNextURL(page_info['end_cursor'])
+            nextUrl = getNextURL(user_id, page_info['end_cursor'])
             js_data = getJSONDataFromURL(nextUrl)
             click.echo('one page finished, waiting for parse next page...')
             if GET_CERTAIN_ROLL is True:
@@ -275,6 +285,7 @@ def interface():
 
 def main(*arg):
 
+    is_download = True
     click.echo('-------------------- crawl ins start ------------------')
     click.echo('-------'+arg[0]+'-------')
 
@@ -292,7 +303,9 @@ def main(*arg):
 
     click.echo('-------------------- crawl ins result --------------------')
 
-    is_download = interface()
+    click.echo('Images: '+str(len(img_urls))+' Videos: '+str(len(video_urls)))
+
+#    is_download = interface()
 
     if is_download is True:
         click.echo('-------------------- download source start ------------------')
