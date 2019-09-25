@@ -4,11 +4,11 @@
 import requests
 import asyncio
 import sys
-import InsCrawl
 from lxml import etree
 import click
+import time
+import json
 
-from InsCrawl import img_urls, video_urls
 
 HEADER = {
     'accept': '*/*',
@@ -27,13 +27,29 @@ PAGE_URL = 'https://www.instagram.com/graphql/query/?query_hash=58b6785bea111c67
 TARGET_SHORTCODE_STR = '{shortcode}'
 SIDECAR_URL = 'https://www.instagram.com/graphql/query/?query_hash=865589822932d1b43dfe312121dd353a&variables=%7B%22shortcode%22%3A%22'+TARGET_SHORTCODE_STR+'%22%2C%22child_comment_count%22%3A3%2C%22fetch_comment_count%22%3A40%2C%22parent_comment_count%22%3A24%2C%22has_threaded_comments%22%3Atrue%7D'
 
-url_list = []
+url_list = {}
+con_request_list = {}
 res_list = []
 
-img_urls = []
-video_urls = []
+img_urls = {}
+video_urls = {}
 
-user_id = ''
+user_id = {}
+
+PAGE_NUM = 2
+PAGE_IDX = {}
+
+REQUEST_IDX = 0
+
+def open_json(tar):
+    js = None
+    try:
+        js = json.loads(tar, encoding='utf-8')
+    except:
+        #click.echo('json open failed')
+        pass
+
+    return js
 
 def request_url():
 
@@ -42,12 +58,30 @@ def request_url():
     while True:
         try:
             if url != None and url != '':
-                url = yield requests.get(url, headers=HEADER)
+                res = requests.get(url, headers=HEADER, timeout=1)
+                url = yield res
             else:
                 url = yield None
-        except Exception as e:
-            print('oops!')
+
+#            click.echo('url in generator is '+url)
+            if url == 'break':
+                click.echo('interation break')
+                return                
+        except KeyboardInterrupt as e:
+            raise e
+        except BlockingIOError as e:
+            print('Blocking IO error')
+            raise e
+        except:
+            print('I dont know why is here')
+#            print('oops!')
 #            raise e
+
+def getNextURL(id, str_source):
+    #click.echo(str_source)
+    res = PAGE_URL.replace(TARGET_STR, str_source[:-2])
+    res = res.replace(TARGET_ID_STR, id)
+    return res  
 
 def parse_html(raw):
         
@@ -57,8 +91,10 @@ def parse_html(raw):
     for tag in all_tags:
         if tag.strip().startswith('window._sharedData'):
             data = tag.split(' = ')[1][:-1]
-            js_data = InsCrawl.open_json(data)
-            break
+            #print('tag is ', data)
+            js_data = open_json(data)
+            if js_data is not None:
+                break
         else:
             continue 
     return js_data
@@ -71,48 +107,33 @@ def get_jsDataFromShortCode(node):
 
 def parse_sidecar(*arg):
     node = arg[0]
+    idx = arg[1]
     next_url = get_jsDataFromShortCode(node)
 
-    url_list.append(next_url)
+    url_list[next_url] = idx
     click.echo('parse_sidecar')
-    return
-    try:
-    
-        edges = js_data['data']['shortcode_media']['edge_sidecar_to_children']['edges']
-        
-        for edge in edges:
-            node = edge['node']
-            typename = node['__typename']
-            parse_typename(typename, node)
-    except:
-        click.echo('something wrong, please check the shortcode, node is '+node['shortcode'])
 
 def parse_image(*arg):    
     global img_urls
 
     node = arg[0]
+    idx = arg[1]
     click.echo('parse_img')  
     img_url = node['display_url']
-    img_urls.append(img_url)
+    img_urls[idx].append(img_url)
+
 
 def parse_video(*arg):
-    global video_urls
-    click.echo('parse_video')
 
     node = arg[0]
+    idx = arg[1]
+
     next_url = get_jsDataFromShortCode(node)
     
-    url_list.append(next_url)
-    
-    return
+    url_list[next_url] = idx
 
-    try:
-        video_url = js_data['data']['shortcode_media']['video_url']
-        video_urls.append(video_url)
-    except:
-        click.echo('something wrong, please check the shortcode, node is '+node['shortcode'])
 
-def parse_typename(typename, node):
+def parse_typename(typename, node, dict_idx):
     methods = {
         'GraphSidecar': parse_sidecar,
         'GraphImage': parse_image,
@@ -121,105 +142,248 @@ def parse_typename(typename, node):
 
     method = methods.get(typename)
     if method:
-        method(node)
+        method(node, dict_idx)
 
+def parse_data_jason(json, dict_idx):
 
+    edges = json['data']['shortcode_media']['edge_sidecar_to_children']['edges']
+        
+    for edge in edges:
+        node = edge['node']
+        typename = node['__typename']
+        parse_typename(typename, node, dict_idx)
 
+    return None   
 
-parse_JSON_approches = ((parse_index_json, [arg1, arg2], ),
-                        (parse_page_json),
-                        (),
-                        ())
+def parse_video_json(json, dict_idx):
+     
+    video_url = json['data']['shortcode_media']['video_url']
+    video_urls[dict_idx].append(video_url)
 
-
-def parse_index_json(json):
+    return None
     
-    global user_id
+
+def parse_index_json(json, dict_idx):
+    
+    global user_id, PAGE_IDX
 
     user = json['entry_data']['ProfilePage'][0]['graphql']['user']
     edges = user['edge_owner_to_timeline_media']['edges']
     page_info = user['edge_owner_to_timeline_media']['page_info']    
-    user_id = user['id']
+    user_id[dict_idx] = user['id']
 
     for edge in edges:
         typename = edge['node']['__typename']
-        parse_typename(typename, edge['node'])
+        parse_typename(typename, edge['node'], dict_idx)
+
+    if page_info is not None:
+        if page_info['has_next_page'] == True:
+            nextUrl = getNextURL(user_id[dict_idx], page_info['end_cursor'])
+            url_list[nextUrl] = dict_idx
+            PAGE_IDX[dict_idx] += 1 
+            print('page idx is', PAGE_IDX)
 
     return page_info  
 
-def parse_page_json(json):
+def parse_page_json(json, dict_idx):
+
+    global PAGE_IDX, PAGE_NUM
 
     edges = json['data']['user']['edge_owner_to_timeline_media']['edges']
     page_info = json['data']['user']['edge_owner_to_timeline_media']['page_info']
 
     for edge in edges:
         typename = edge['node']['__typename']
-        parse_typename(typename, edge['node'])
+        parse_typename(typename, edge['node'], dict_idx)
 
-    return page_info
+    #click.echo('parse_page_json') 
+    if page_info is not None:
+        if page_info['has_next_page'] == True:
+            nextUrl = getNextURL(user_id[dict_idx], page_info['end_cursor'])
+            print('The {} {} page has been parsed'.format(dict_idx, PAGE_IDX[dict_idx]+1))
+            if PAGE_IDX[dict_idx] < PAGE_NUM-1:
+                url_list[nextUrl] = dict_idx
+                PAGE_IDX[dict_idx] += 1        
 
+    return None
 
-def parseJSON(json):
-
-    try:
-        user = json['entry_data']['ProfilePage'][0]['graphql']['user']
-        edges = user['edge_owner_to_timeline_media']['edges']
-        page_info = user['edge_owner_to_timeline_media']['page_info']    
-        user_id = user['id']
-    except:
-        edges = json['data']['user']['edge_owner_to_timeline_media']['edges']
-        page_info = json['data']['user']['edge_owner_to_timeline_media']['page_info']
-
-    for edge in edges:
-        typename = edge['node']['__typename']
-        parse_typename(typename, edge['node']) 
+parse_JSON_approches = [parse_page_json, parse_index_json, parse_video_json, parse_data_jason]
 
 
-    return page_info    
+def parseJSON(dict_idx, json):
 
-def prase_raw_data(raw):
+    for approch in parse_JSON_approches:
+
+        try:
+            approch(json, dict_idx)
+            click.echo('json parsed by ' + approch.__name__)
+        except KeyboardInterrupt as e:
+            raise e            
+        except:
+           #click.echo('cant parse, find next parse function')
+            pass
+
+    return None
+
+def prase_raw_data(dict_idx, raw):
+
+    if raw.status_code != 200:
+        click.echo('server returns for ' + str(raw.status_code))
+        return False
+
     content = raw.content.decode()
-    js_data = InsCrawl.open_json(content)
+    js_data = open_json(content)
 
     if js_data == None:
         js_data = parse_html(content)
 
-    page_info = parseJSON(js_data)
+    parseJSON(dict_idx, js_data)
 
-    user_id = InsCrawl.get_user_id()
-    if page_info['has_next_page'] == True:
-        print('get next url' + user_id)
-        nextUrl = InsCrawl.getNextURL(user_id, page_info['end_cursor'])
-        url_list.append(nextUrl)               
+    return True
+      
+def gloabl_initial(urls):
+
+    global url_list, user_id, PAGE_IDX, img_urls, video_urls
+    
+    for url in urls:
+        url_list[url] = url
+        img_urls[url] = []
+        video_urls[url] = []
+        user_id[url] = []
+        PAGE_IDX[url] = 0 
+#        url_list[url].append(url) 
 
 
-
-def parseURL(entre_url):
+def getNextURL_fromList(index):
 
     global url_list
 
-    print('enter url is '+entre_url)
-    url_list.append(entre_url)
-#    url_list.append('https://www.instagram.com/JayChou')
-    req = request_url()
-    res = req.send(None)
+    keys = []
+    for key in url_list.keys():
+        keys.append(key)
 
-    for url in url_list:
-        print('start====>{}'.format(url))
-        res = req.send(url)
-        print('res is ', res)
-        prase_raw_data(res)
+    url = None
+    idx = None
 
+#    print('lenth of dict is', len(keys), index)
+
+    if index < len(keys):
+        url = keys[index]
+        idx = url_list[url]
+        #print('url and idx is ', url, idx)
+    return url, idx
+
+def requestURL():
+
+    global REQUEST_IDX
+
+    url = ''
+#    while True:
+
+    try:
+        url, idx = getNextURL_fromList(REQUEST_IDX)
+        if url is None and idx is None:
+            print('yield None None')
+            yield 'FINISHED', None
+
+#        print('what is going to get, idx is', url, idx)
+        res = requests.get(url, headers=HEADER, timeout=1)
+        if res.status_code == 200:
+            REQUEST_IDX += 1
+            #print('what is going to yield, idx is', res, idx)
+            yield res, idx 
+        else:
+            yield 'RETRY LATER', idx
+    except KeyboardInterrupt:
+        raise
+    except:
+        pass
+
+
+def requestGenerator():
+    yield from requestURL()
+       
+@asyncio.coroutine
+def parseURL(entre_url):
+
+    global url_list, REQUEST_IDX
+
+    print('enter url is ', entre_url)
+
+    res = []
+
+    while True:
+
+        try:
+            gen = requestGenerator()
+
+            for res, dict_idx in gen:
+                print('gen is ', res)
+
+                if res is not None:
+
+                    if res == 'FINISHED':
+                        pass
+                    else:
+
+                        print('data is going to parse', res)
+                        con = prase_raw_data(dict_idx, res)
+                        if con == True:
+                            pass
+                        else:
+                            click.echo('crawl will retry after 60s')
+                            time.sleep(60) 
+
+            #print(url_list, con_request_list) 
+
+        except KeyboardInterrupt:
+            raise
+        except:
+            print('I dont know what happend')
+
+'''     
+    res = gen.send(None)
+    
+    while True:
+
+        try:
+
+            if i >= len(url_list[entre_url]):
+                click.echo('parse finished, program is going to download resources')
+                gen.send('break')
+                break
+
+            url = url_list[entre_url][i]
+            #print('start====>{}'.format(url))
+            res = gen.send(url)
+            print('res is ', res)
+            con = prase_raw_data(entre_url, res)
+            con = True
+            if con == True:
+                i += 1
+            else:
+                click.echo('crawl will retry after 60s')
+                time.sleep(60)
+
+        except KeyboardInterrupt as e:
+            raise e
+
+        except:
+            break
+        
+        #click.echo('url_list len is '+ str(len(url_list)))
+'''
 
 def showParseRes():
 
     global img_urls, video_urls
 
-    img_urls = InsCrawl.getIMGURLs()
-    video_urls = InsCrawl.getVideoURLS()
-
     click.echo('-------------------- crawl ins result --------------------')
-    click.echo('Images: '+str(len(img_urls))+' Videos: '+str(len(video_urls)))
+    
+    for key in img_urls.keys():
+        click.echo('------------------'+key+'------------------')
+        click.echo('Images: '+str(len(img_urls[key]))+' Videos: '+str(len(video_urls[key])))
+        click.echo('-------------------------------------------')
 
 
 
@@ -233,8 +397,24 @@ def main():
 
     print('ins crawl start')
     
-    url = 'https://www.instagram.com/JayChou/'
-    parseURL(url)
+    urls = ['https://www.instagram.com/JayChou/',
+            'https://www.instagram.com/b_b_j.j/',
+            'https://www.instagram.com/cosmosdrone/',
+            'https://www.instagram.com/emiliaclarkee/',
+            'https://www.instagram.com/nasa/',
+            ]
+
+    gloabl_initial(urls)        
+
+    tasks = [parseURL(url) for url in urls]
+
+    #print(tasks)
+
+    loop = asyncio.get_event_loop()    
+    loop.run_until_complete(asyncio.wait(tasks))
+
+    loop.close()
+
     showParseRes()
 
     download_url()
