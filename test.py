@@ -8,6 +8,11 @@ from lxml import etree
 import click
 import time
 import json
+import threading
+
+THREADING_SUM = 100
+
+PAGE_NUM = 0
 
 
 HEADER = {
@@ -36,10 +41,15 @@ video_urls = {}
 
 user_id = {}
 
-PAGE_NUM = 2
+
 PAGE_IDX = {}
 
 REQUEST_IDX = 0
+
+FINISHED_SIGNAL = 'FINISHED'
+RETRY_SIGNAL = 'RETRY_LATER'
+
+
 
 def open_json(tar):
     js = None
@@ -178,10 +188,12 @@ def parse_index_json(json, dict_idx):
 
     if page_info is not None:
         if page_info['has_next_page'] == True:
-            nextUrl = getNextURL(user_id[dict_idx], page_info['end_cursor'])
-            url_list[nextUrl] = dict_idx
-            PAGE_IDX[dict_idx] += 1 
-            print('page idx is', PAGE_IDX)
+
+            if PAGE_NUM == 0 or PAGE_NUM > 1:
+                nextUrl = getNextURL(user_id[dict_idx], page_info['end_cursor'])
+                url_list[nextUrl] = dict_idx
+                PAGE_IDX[dict_idx] += 1 
+                print('page idx is', PAGE_IDX)
 
     return page_info  
 
@@ -201,9 +213,16 @@ def parse_page_json(json, dict_idx):
         if page_info['has_next_page'] == True:
             nextUrl = getNextURL(user_id[dict_idx], page_info['end_cursor'])
             print('The {} {} page has been parsed'.format(dict_idx, PAGE_IDX[dict_idx]+1))
-            if PAGE_IDX[dict_idx] < PAGE_NUM-1:
-                url_list[nextUrl] = dict_idx
-                PAGE_IDX[dict_idx] += 1        
+
+            if PAGE_NUM > 0:
+                if PAGE_NUM == 1:
+                    pass
+                else:
+                    if PAGE_IDX[dict_idx] < PAGE_NUM-1:
+                        url_list[nextUrl] = dict_idx
+                        PAGE_IDX[dict_idx] += 1
+            else:
+                url_list[nextUrl] = dict_idx        
 
     return None
 
@@ -227,10 +246,6 @@ def parseJSON(dict_idx, json):
 
 def prase_raw_data(dict_idx, raw):
 
-    if raw.status_code != 200:
-        click.echo('server returns for ' + str(raw.status_code))
-        return False
-
     content = raw.content.decode()
     js_data = open_json(content)
 
@@ -251,7 +266,7 @@ def gloabl_initial(urls):
         video_urls[url] = []
         user_id[url] = []
         PAGE_IDX[url] = 0 
-#        url_list[url].append(url) 
+ #       url_list[url].append(url) 
 
 
 def getNextURL_fromList(index):
@@ -284,7 +299,7 @@ def requestURL():
         url, idx = getNextURL_fromList(REQUEST_IDX)
         if url is None and idx is None:
             print('yield None None')
-            yield 'FINISHED', None
+            yield FINISHED_SIGNAL, None
 
 #        print('what is going to get, idx is', url, idx)
         res = requests.get(url, headers=HEADER, timeout=1)
@@ -293,7 +308,7 @@ def requestURL():
             #print('what is going to yield, idx is', res, idx)
             yield res, idx 
         else:
-            yield 'RETRY LATER', idx
+            yield RETRY_SIGNAL, idx
     except KeyboardInterrupt:
         raise
     except:
@@ -318,61 +333,25 @@ def parseURL(entre_url):
             gen = requestGenerator()
 
             for res, dict_idx in gen:
-                print('gen is ', res)
+#                print('gen is ', res)
 
                 if res is not None:
 
-                    if res == 'FINISHED':
-                        pass
-                    else:
-
-                        print('data is going to parse', res)
+                    if res == FINISHED_SIGNAL:
+                        break
+                    elif res == RETRY_SIGNAL:
+                        click.echo(RETRY_SIGNAL)                        
+                        click.echo('crawl will retry after 60s')
+                        time.sleep(60)                        
+                    else:   
                         con = prase_raw_data(dict_idx, res)
-                        if con == True:
-                            pass
-                        else:
-                            click.echo('crawl will retry after 60s')
-                            time.sleep(60) 
-
-            #print(url_list, con_request_list) 
-
         except KeyboardInterrupt:
             raise
         except:
             print('I dont know what happend')
 
-'''     
-    res = gen.send(None)
-    
-    while True:
-
-        try:
-
-            if i >= len(url_list[entre_url]):
-                click.echo('parse finished, program is going to download resources')
-                gen.send('break')
-                break
-
-            url = url_list[entre_url][i]
-            #print('start====>{}'.format(url))
-            res = gen.send(url)
-            print('res is ', res)
-            con = prase_raw_data(entre_url, res)
-            con = True
-            if con == True:
-                i += 1
-            else:
-                click.echo('crawl will retry after 60s')
-                time.sleep(60)
-
-        except KeyboardInterrupt as e:
-            raise e
-
-        except:
-            break
-        
-        #click.echo('url_list len is '+ str(len(url_list)))
-'''
+        if res == FINISHED_SIGNAL:
+            return 
 
 def showParseRes():
 
@@ -386,12 +365,32 @@ def showParseRes():
         click.echo('-------------------------------------------')
 
 
-
 def download_url():
+    print(threading.current_thread().name+' is running!')
+
+def download_resources():
     global img_urls, video_urls
 
+    t_list = []
+    for i in range(THREADING_SUM):
+        t = threading.Thread(target=download_url)
+        t.start()
+        t_list.append(t)
 
-    pass
+
+def write_json_files(src, filename):
+    with open(filename, 'w+') as f:
+        js_str = json.dumps(src, indent=4)
+        f.write(js_str)
+        f.close()   
+
+def url_save():
+    global url_list, img_urls, video_urls
+
+    write_json_files(url_list, 'urls.json')
+    write_json_files(img_urls, 'img_urls.json')
+    write_json_files(video_urls, 'video_urls.json')
+
 
 def main():
 
@@ -406,18 +405,17 @@ def main():
 
     gloabl_initial(urls)        
 
-    tasks = [parseURL(url) for url in urls]
-
-    #print(tasks)
+    tasks = [parseURL('')]
 
     loop = asyncio.get_event_loop()    
     loop.run_until_complete(asyncio.wait(tasks))
-
     loop.close()
 
     showParseRes()
 
-    download_url()
+    url_save()
+
+#    download_resources()
 
 if __name__ == "__main__":
     main()
