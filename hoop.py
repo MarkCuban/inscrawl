@@ -38,6 +38,21 @@ def request_url():
         else:
             yield None
 
+def request_url_test(url):
+#   url = None
+
+#    while True:
+    if url == None:
+        yield None
+
+    if url is not None:    
+        res = requests.get(url, headers=HEADER)
+    
+        if res.status_code == 200:
+            yield res
+        else:
+            yield None            
+
         
 def detectindex():
 
@@ -73,10 +88,7 @@ def detectindex():
     return title_sum, len(tags)
 
 def requestGen(url):
-    gen = request_url()
-    gen.send(None)
-    ret = gen.send(url)
-    yield from ret
+    yield from request_url_test(url)
 
 def parse_titile(raw, idx):
     
@@ -86,10 +98,12 @@ def parse_titile(raw, idx):
     print('page {} has {} titles'.format(idx, len(tags)))
     f = file_list[0]
     try:
-        f.write('page {} has {} titles'.format(idx, len(tags)))
+#        f.write('page {} has {} titles'.format(idx, len(tags)))
         for tag in tags:
-            if len(tag.text) > 0 and tag.text != '\n':
-                f.write(tag.text)
+            if tag.text is not None:
+                if len(tag.text) > 0 and tag.text != '\n':
+                    print(tag.text)
+#                f.write(tag.text)
     except Exception as e:
         raise e
     
@@ -101,11 +115,12 @@ def requestURL(url):
     f_name = url.split('-')[1]
     html = b''
 
-    res_list = requestGen(url)
-    for res in res_list:
-        html += res
-
-    parse_titile(html.decode(), f_name)
+    try:
+        res_list = requestGen(url)
+        print('yield res is ', res_list)
+    except Exception as e:
+        print(e)
+    print('url is parsed over', url)
 
 def crawl(t_sum, t_page):
     print('sum title is ', t_sum)
@@ -115,7 +130,7 @@ def crawl(t_sum, t_page):
     filename_lst = ['title']
     open_files(filename_lst)
     tasks = []
-    for i in range(5):
+    for i in range(2):
         url = URL+'-{}'.format(str(i+1))
         gen = requestURL(url)
         tasks.append(gen)
