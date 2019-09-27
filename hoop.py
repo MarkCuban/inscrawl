@@ -3,6 +3,7 @@ import requests
 import re
 from lxml import etree
 import asyncio
+import json
 
 URL = 'https://bbs.hupu.com/bxj'
 
@@ -23,72 +24,24 @@ file_list = []
 
 PARSE_TITLE_STR = '//a[@class="truetit"]'
 
-def request_url():
-    url = None
-
-#    while True:
-    if url == None:
-        url = yield None
+def request_url(url):
+    yield 
 
     if url is not None:    
-        res = requests.get(url, headers=HEADER)
+        res = requests.get(url, headers=HEADER, timeout=3)
     
         if res.status_code == 200:
-            yield res
+            return res.content.decode()
         else:
-            yield None
+            pass   
 
-def request_url_test(url):
-#   url = None
+    return None   
 
-#    while True:
-    if url == None:
-        yield None
-
-    if url is not None:    
-        res = requests.get(url, headers=HEADER)
-    
-        if res.status_code == 200:
-            yield res
-        else:
-            yield None            
-
-        
-def detectindex():
-
-    gen = request_url()
-
-    while True:
-        gen.send(None)
-        res = None
-
-        try:
-            res = gen.send(URL)
-        except StopIteration:
-            pass
-
-        gen.close()
-        raw = res.content.decode()
-        html = etree.HTML(raw)
-
-        if html is not None:
-            break
-
-    tags = html.xpath('//div[@class="pageright"]/text()')
-
-    for tag in tags:
-        tag = tag.strip('\r\n')
-        if tag.startswith(COMPARE_STR_START):
-            tag = tag.split(COMPARE_STR_START)[1]
-            tag = tag.split(COMPARE_STR_END)[0]
-            title_sum = tag
-
-    tags = html.xpath(PARSE_TITLE_STR)
-          
-    return title_sum, len(tags)
-
-def requestGen(url):
-    yield from request_url_test(url)
+def write_json_files(src, filename):
+    with open(filename, 'w+') as f:
+        js_str = json.dumps(src, indent=4)
+        f.write(js_str)
+        f.close()            
 
 def parse_titile(raw, idx):
     
@@ -97,30 +50,39 @@ def parse_titile(raw, idx):
 
     print('page {} has {} titles'.format(idx, len(tags)))
     f = file_list[0]
+    tag_dict = {}
     try:
-#        f.write('page {} has {} titles'.format(idx, len(tags)))
+        f.write('page {} has {} titles\n'.format(idx, len(tags)))
         for tag in tags:
             if tag.text is not None:
-                if len(tag.text) > 0 and tag.text != '\n':
-                    print(tag.text)
-#                f.write(tag.text)
+#                print(tag.attrib)
+#                f.write(tag.text+'\n')
+                tag_dict[tag.text] = tag.attrib['href']
+        
+        js_str = json.dumps(tag_dict, indent=4, ensure_ascii=False)
+        f.write(js_str)
+
     except Exception as e:
         raise e
-    
-
             
 @asyncio.coroutine
 def requestURL(url):
     print('url is ', url)
     f_name = url.split('-')[1]
-    html = b''
+    res_list = None
+    
+    while True:
+        try:
+            res_list = yield from request_url(url)
+        except Exception as e:
+            print(e)
 
-    try:
-        res_list = requestGen(url)
-        print('yield res is ', res_list)
-    except Exception as e:
-        print(e)
-    print('url is parsed over', url)
+        if res_list is None:
+            continue
+
+        parse_titile(res_list, f_name)
+        print('url is parsed over', url)
+        break            
 
 def crawl(t_sum, t_page):
     print('sum title is ', t_sum)
@@ -130,7 +92,7 @@ def crawl(t_sum, t_page):
     filename_lst = ['title']
     open_files(filename_lst)
     tasks = []
-    for i in range(2):
+    for i in range(pages):
         url = URL+'-{}'.format(str(i+1))
         gen = requestURL(url)
         tasks.append(gen)
@@ -141,17 +103,50 @@ def crawl(t_sum, t_page):
     close_files()
 
 def open_files(filename_lst):
+    global file_list
+
     for f in filename_lst:
-        with open(f+'.txt', 'w+') as fl:
-            file_list.append(fl)
+        fl = open(f+'.txt', 'w+', encoding='utf-8')
+        file_list.append(fl)
 
 def close_files():
     for f in file_list:
         f.close()
 
+def detectindex():
+
+    while True:
+        raw = None
+        try:
+            res = requests.get(URL, headers=HEADER, timeout=3)
+            if res.status_code == 200:
+                raw = res.content.decode()
+        except Exception as e:
+            print(e)
+            continue
+
+        if raw is not None:
+            break
+
+    html = etree.HTML(raw)
+    tags = html.xpath('//div[@class="pageright"]/text()')
+
+    for tag in tags:
+        tag = tag.strip('\r\n')
+        if tag.startswith(COMPARE_STR_START):
+            tag = tag.split(COMPARE_STR_START)[1]
+            tag = tag.split(COMPARE_STR_END)[0]
+            title_sum = tag
+
+    tags = html.xpath(PARSE_TITLE_STR)
+  
+    return title_sum, len(tags)    
+
 def main():
     title_sum, title_page = detectindex()
     crawl(title_sum, title_page)
+
+    close_files()
 
 
 if __name__ == "__main__":
