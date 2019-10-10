@@ -10,6 +10,7 @@ import os
 from lxml import etree
 import aiohttp
 import click
+import time
 
 
 PAGE_NUM = 1
@@ -270,8 +271,17 @@ async def request_and_parse(url, idx):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=HEADER) as resp:
-                    data = await resp.read()
-                    parse_url(data, idx)
+                    print('status: ', resp.status)
+                    if resp.status == 200:
+                        data = await resp.read()
+                        parse_url(data, idx)
+                    elif resp.status == 429:
+                        print('rest for a while')
+                        time.sleep(360)
+                        continue
+                    else:
+                        continue
+
         except Exception as e:
             print(e)
         break
@@ -299,8 +309,16 @@ async def download_single(url, idx):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=HEADER) as resp:
-                    data = await resp.read()
-                    save_img(data, fname, folder)
+                    if resp.status == 200:
+                        data = await resp.read()
+                        save_img(data, fname, folder)
+                    elif resp.status == 429:
+                        print('rest for a while')
+                        time.sleep(360)
+                        continue
+                    else:
+                        continue
+                                        
         except Exception as e:
             print(e)
             continue
