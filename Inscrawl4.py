@@ -8,25 +8,26 @@ from requests import Response
 import signal
 import os
 from lxml import etree
-import time
+import aiohttp
 import click
 
-PAGE_NUM = 0
+
+PAGE_NUM = 1
 
 WITH_PROXY = False
 
 URLS = [    'https://www.instagram.com/JayChou/',
-            'https://www.instagram.com/b_b_j.j/',
+            #'https://www.instagram.com/b_b_j.j/',
             #'https://www.instagram.com/cosmosdrone/',
             #'https://www.instagram.com/emiliaclarkee/',
-            'https://www.instagram.com/nasa/',
+            #'https://www.instagram.com/nasa/',
             'https://www.instagram.com/hannah_quinlivan/',
             #'https://www.instagram.com/stephencurry30/',
-            'https://www.instagram.com/ashleybenson/',
+            #'https://www.instagram.com/ashleybenson/',
             #'https://www.instagram.com/diawboris/',
             #'https://www.instagram.com/rogerfederer/',
             #'https://www.instagram.com/sleepinthegardn/',
-            'https://www.instagram.com/chloegmoretz/',
+            #'https://www.instagram.com/chloegmoretz/',
     ]
 
 DIR_REFE = 'https://www.instagram.com/'
@@ -252,42 +253,32 @@ async def request_url(url):
         else:
             res = await loop.run_in_executor(None, requests.get, url, HEADER)
     return res
-'''
-        if res.status_code == 200:
-            return res.content.decode()
-        else:
-            pass
-'''
     
-   
+'''
+    print('start ', idx)
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://www.google.com') as resp:
+            print('get resp ', idx, resp)
+            data = await resp.read()
+            print('data: ', data)
+            
+    url_list.pop(url)
+'''   
 async def request_and_parse(url, idx):
-    res = None
+
     while True:
         try:
-            res = await request_url(url)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=HEADER) as resp:
+                    data = await resp.read()
+                    parse_url(data, idx)
         except Exception as e:
             print(e)
-
-        if isinstance(res, Response):
-            if res.status_code == 200:
-                parse_url(res.content.decode(), idx)
-            elif res.status_code == 429:
-                print('crawl will retry after 360s')
-                for i in range(35):
-                    time.sleep(10)  
-                    print('crawl will retry after {}s'.format(10*(36-i-1))) 
-                time.sleep(10)
-                continue
-            else:
-                print('stopped by server')
-                continue
-        else:
-            continue
-
         break
         
-    print('url is parsed over', url)     
+#    print('url is parsed over', url)     
     url_list.pop(url)
+
 
 def save_img(con, fname, folder):
 
@@ -298,7 +289,6 @@ def save_img(con, fname, folder):
 
 
 async def download_single(url, idx):
-    res = None
 
     fname = url.split(NAME_REFE)[0].split('/')[-1]
     dirname = getdirname(idx)
@@ -307,24 +297,14 @@ async def download_single(url, idx):
     while True:
 
         try:
-            res = await request_url(url)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=HEADER) as resp:
+                    data = await resp.read()
+                    save_img(data, fname, folder)
         except Exception as e:
             print(e)
-
-        if isinstance(res, Response):
-            if res.status_code == 200:
-                save_img(res.content, fname, folder)
-            elif res.status_code == 429:
-                print('crawl will retry after 360s')
-                for i in range(35):
-                    time.sleep(10)  
-                    print('crawl will retry after {}s'.format(10*(36-i-1))) 
-                time.sleep(10)
-                continue
-            else:
-                continue 
-
-            break          
+            continue
+        break          
 
 def initial():
 
@@ -346,11 +326,6 @@ def showParseRes():
         print('Images: '+str(len(img_urls[key]))+' Videos: '+str(len(video_urls[key])))
         print('-------------------------------------------')             
 
-def my_handler():
-    print('stopping')
-    for task in asyncio.Task.all_tasks():
-        task.cancel()
-
 def write_json_files(src, filename):
     with open(filename, 'w+') as f:
         js_str = json.dumps(src, indent=4)
@@ -369,22 +344,20 @@ def crawl(loop):
     tasks = []
 
     print(url_list)
+
     while True:
 
         if len(url_list) == 0:
-            break
+            break        
 
         for key in url_list.keys():
             gen = request_and_parse(key, url_list[key])
             tasks.append(gen)
-        
-        try:
-            
-            loop.run_until_complete(asyncio.wait(tasks))
-             
-        except Exception as e:
-            print(e)
 
+        try:            
+            loop.run_until_complete(asyncio.wait(tasks)) 
+        except Exception as e:
+            raise e
     
     showParseRes()  
 
@@ -435,7 +408,6 @@ def main():
 
     crawl(loop)
     url_save()
-
     if interface() == True:
         url_down(loop)
 
