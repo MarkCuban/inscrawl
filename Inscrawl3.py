@@ -6,12 +6,12 @@ import collections
 from collections.abc import Awaitable
 from requests import Response
 import signal
-
+import os
 from lxml import etree
 
 PAGE_NUM = 1
 
-WITH_PROXY = False
+WITH_PROXY = True
 
 URLS = [    'https://www.instagram.com/JayChou/',
             #'https://www.instagram.com/b_b_j.j/',
@@ -26,6 +26,8 @@ URLS = [    'https://www.instagram.com/JayChou/',
             #'https://www.instagram.com/sleepinthegardn/',
             #'https://www.instagram.com/chloegmoretz/',
     ]
+
+DIR_REFE = 'https://www.instagram.com/'
 
 HEADER = {
     'accept': '*/*',
@@ -234,6 +236,9 @@ def parse_url(content, url):
 
     parseJSON(url, js_data)
 
+def requestPointGet(url, header, proxy):
+    return requests.get(url, headers=HEADER, proxies=proxy)
+
 async def request_url(url):
     print('url {} request start'.format(url))
 
@@ -241,7 +246,7 @@ async def request_url(url):
     if url is not None:  
 
         if WITH_PROXY == True: 
-            res = await loop.run_in_executor(None, requests.get, url, HEADER, proxy)
+            res = await loop.run_in_executor(None, requestPointGet, url, HEADER, proxy)
         else:
             res = await loop.run_in_executor(None, requests.get, url, HEADER)
     return res
@@ -274,16 +279,21 @@ async def request_and_parse(url, idx):
     print('url is parsed over', url)     
     url_list.pop(url)
 
-def save_img(con, fname):
+def save_img(con, fname, folder):
 
-    with open(fname, 'wb') as f:
+    if not folder.endswith('/'):
+        folder += '/'
+    with open(folder+fname, 'wb') as f:
         f.write(con)
 
 
-async def download_single(url):
+async def download_single(url, idx):
     res = None
 
     fname = url.split(NAME_REFE)[0].split('/')[-1]
+    dirname = getdirname(idx)
+    folder = os.getcwd() + '/' + dirname
+
     while True:
 
         try:
@@ -293,7 +303,7 @@ async def download_single(url):
 
         if isinstance(res, Response):
             if res.status_code == 200:
-                save_img(res.content, fname)
+                save_img(res.content, fname, folder)
             else:
                 print('not 200, try again')            
 
@@ -325,8 +335,7 @@ def my_handler():
 def write_json_files(src, filename):
     with open(filename, 'w+') as f:
         js_str = json.dumps(src, indent=4)
-        f.write(js_str)
-        f.close()   
+        f.write(js_str)   
 
 def url_save():
     global img_urls, video_urls
@@ -360,8 +369,38 @@ def crawl(loop):
     
     showParseRes()  
 
-def url_down():
+def down_init():
+    pass
 
+def getdirname(url):
+    res = url.split(DIR_REFE)[1]
+    res = res.split('/')[0]
+    return res
+
+def makedir(key):
+    dirname = getdirname(key)
+    folder = os.getcwd() + '/' + dirname
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+
+
+def url_down(loop):
+
+    down_init()
+    tasks = []
+
+    for urls in img_urls, video_urls:
+        for key in urls.keys():
+            makedir(key)
+            for url in urls[key]:
+                gen = download_single(url, key)
+                tasks.append(gen)
+
+        try: 
+            loop.run_until_complete(asyncio.wait(tasks))  
+        except Exception as e:
+            print(e)
 
 def main(): 
 
@@ -369,7 +408,7 @@ def main():
 
     crawl(loop)
     url_save()
-    url_down()
+    url_down(loop)
 
     loop.close()
 
