@@ -13,22 +13,24 @@ import click
 import time
 
 
-PAGE_NUM = 1
+PAGE_NUM = 0
 
 WITH_PROXY = False
 
-URLS = [    'https://www.instagram.com/JayChou/',
-            #'https://www.instagram.com/b_b_j.j/',
-            #'https://www.instagram.com/cosmosdrone/',
-            #'https://www.instagram.com/emiliaclarkee/',
-            #'https://www.instagram.com/nasa/',
+URLS = [    #'https://www.instagram.com/JayChou/',
+            'https://www.instagram.com/b_b_j.j/',
+            'https://www.instagram.com/cosmosdrone/',
+            'https://www.instagram.com/emiliaclarkee/',
+            'https://www.instagram.com/nasa/',
             'https://www.instagram.com/hannah_quinlivan/',
             #'https://www.instagram.com/stephencurry30/',
-            #'https://www.instagram.com/ashleybenson/',
+            'https://www.instagram.com/ashleybenson/',
             #'https://www.instagram.com/diawboris/',
             #'https://www.instagram.com/rogerfederer/',
             #'https://www.instagram.com/sleepinthegardn/',
             #'https://www.instagram.com/chloegmoretz/',
+            'https://www.instagram.com/victoriassecret/',
+
     ]
 
 DIR_REFE = 'https://www.instagram.com/'
@@ -38,7 +40,7 @@ HEADER = {
     'accept-encoding': 'gzip, deflate, br',
     'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7',
     #'cookie': 'mid=XXtloAAEAAFPDIVBwVQCwlLVlXzB; csrftoken=nVAS2jad5L90qVFEYkHArcD6fmU5GUEn; ds_user_id=1285777283; sessionid=1285777283%3AUWUWkFMel6xecU%3A25; shbid=12365; shbts=1570324023.8633752; rur=FRC; urlgen="{\"45.32.251.0\": 20473}:1iHrqf:sYnjYctwHDIoLIb5kAWfWzuQxUE"',
-    'cookie':'mid=XXtloAAEAAFPDIVBwVQCwlLVlXzB; csrftoken=nVAS2jad5L90qVFEYkHArcD6fmU5GUEn; shbid=12365; shbts=1568607008.3552365; ds_user_id=1285777283; sessionid=1285777283%3AUWUWkFMel6xecU%3A25; rur=FRC; urlgen="{\"45.63.51.0\": 20473}:1iA9FD:UCJzQ03-A-j9c-PuNt8wjncDJbA"',
+    '#cookie':'mid=XXtloAAEAAFPDIVBwVQCwlLVlXzB; csrftoken=nVAS2jad5L90qVFEYkHArcD6fmU5GUEn; shbid=12365; shbts=1568607008.3552365; ds_user_id=1285777283; sessionid=1285777283%3AUWUWkFMel6xecU%3A25; rur=FRC; urlgen="{\"45.63.51.0\": 20473}:1iA9FD:UCJzQ03-A-j9c-PuNt8wjncDJbA"',
     'referer': 'https://www.instagram.com/',
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
 }
@@ -64,6 +66,9 @@ proxy = {
     'http': 'http://127.0.0.1:1087',
     'https': 'http://127.0.0.1:1087',
 }
+
+loop = None
+task_num = 0
 
 def open_json(tar):
     js = None
@@ -208,7 +213,8 @@ def parse_page_json(json, dict_idx):
                         url_list[nextUrl] = dict_idx
                         PAGE_IDX[dict_idx] += 1
             else:
-                url_list[nextUrl] = dict_idx        
+                url_list[nextUrl] = dict_idx
+                PAGE_IDX[dict_idx] += 1       
 
     return None
 
@@ -232,7 +238,7 @@ def parseJSON(dict_idx, json):
 
 def parse_url(content, url):
     
-    print('url {} parse start'.format(url))
+    #print('url {} parse start'.format(url))
     js_data = open_json(content)
 
     if js_data == None:
@@ -244,7 +250,7 @@ def requestPointGet(url, header, proxy):
     return requests.get(url, headers=HEADER, proxies=proxy)
 
 async def request_url(url):
-    print('url {} request start'.format(url))
+    #print('url {} request start'.format(url))
 
     loop = asyncio.get_event_loop()
     if url is not None:  
@@ -266,28 +272,39 @@ async def request_url(url):
     url_list.pop(url)
 '''   
 async def request_and_parse(url, idx):
+    global loop, task_num
 
     while True:
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=HEADER) as resp:
+                async with session.get(url, headers=HEADER, timeout=3) as resp:
                     print('status: ', resp.status)
+                    
                     if resp.status == 200:
                         data = await resp.read()
                         parse_url(data, idx)
-                    elif resp.status == 429:
-                        print('rest for a while')
-                        time.sleep(360)
-                        continue
+                    elif resp.status == 404:
+                        print('server error maybe, quit parse')
+                        break    
                     else:
+                        for i in range(0, 40):
+                            print('retry it after {} seconds'.format((40-i)*10))
+                            await asyncio.sleep(10)
                         continue
 
         except Exception as e:
+            print('something happens on: ', url)
             print(e)
+            await asyncio.sleep(5)
+
         break
-        
-#    print('url is parsed over', url)     
+          
     url_list.pop(url)
+    task_num -= 1
+
+    if task_num == 0: 
+        print('stop the loop!')
+        loop.stop()
 
 
 def save_img(con, fname, folder):
@@ -300,6 +317,7 @@ def save_img(con, fname, folder):
 
 async def download_single(url, idx):
 
+    global task_num, loop
     fname = url.split(NAME_REFE)[0].split('/')[-1]
     dirname = getdirname(idx)
     folder = os.getcwd() + '/' + dirname
@@ -309,20 +327,28 @@ async def download_single(url, idx):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=HEADER) as resp:
+                    data = await resp.read()
                     if resp.status == 200:
-                        data = await resp.read()
                         save_img(data, fname, folder)
-                    elif resp.status == 429:
-                        print('rest for a while')
-                        time.sleep(360)
-                        continue
+                    elif resp.status == 404:
+                        print('server error maybe, quit parse')
+                        break
                     else:
+                        for i in range(0, 40):
+                            print('retry it after {} seconds'.format((40-i)*10))
+                            await asyncio.sleep(10)
                         continue
                                         
         except Exception as e:
+            print('something happend')
             print(e)
             continue
-        break          
+        break   
+
+    print(fname+' is saved')
+    task_num -= 1
+    if task_num == 0: 
+        loop.stop()           
 
 def initial():
 
@@ -356,7 +382,12 @@ def url_save():
     write_json_files(img_urls, 'img_urls.json')
     write_json_files(video_urls, 'video_urls.json')
 
+def loop_callback():
+    print('I see what is callback')
+
 def crawl(loop):
+
+    global task_num
 
     initial()
     tasks = []
@@ -367,13 +398,17 @@ def crawl(loop):
 
         if len(url_list) == 0:
             break        
-
+        
+        tasks.clear()
         for key in url_list.keys():
             gen = request_and_parse(key, url_list[key])
             tasks.append(gen)
 
-        try:            
-            loop.run_until_complete(asyncio.wait(tasks)) 
+        task_num = len(tasks)
+        try:     
+            loop.create_task(asyncio.wait(tasks)) 
+#            loop.call_soon(loop_callback)      
+            loop.run_forever()
         except Exception as e:
             raise e
     
@@ -396,19 +431,25 @@ def makedir(key):
 
 
 def url_down(loop):
+    
+    global task_num
 
     down_init()
     tasks = []
 
     for urls in img_urls, video_urls:
+        tasks.clear()
         for key in urls.keys():
             makedir(key)
             for url in urls[key]:
                 gen = download_single(url, key)
                 tasks.append(gen)
-
+        
+        task_num = len(tasks)
+        
         try: 
-            loop.run_until_complete(asyncio.wait(tasks))  
+            loop.create_task(asyncio.wait(tasks))       
+            loop.run_forever()
         except Exception as e:
             print(e)
 
@@ -422,13 +463,15 @@ def interface():
 
 def main(): 
 
+    global loop
     loop = asyncio.get_event_loop()
-
+    
     crawl(loop)
     url_save()
     if interface() == True:
         url_down(loop)
 
+    loop.run_until_complete(loop.shutdown_asyncgens())
     loop.close()
 
 if __name__ == "__main__":
