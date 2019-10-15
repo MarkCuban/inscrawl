@@ -16,7 +16,7 @@ from enum import Enum
 
 PAGE_NUM = 5
 
-WITH_PROXY = False
+WITH_PROXY = True
 
 MAX_XIECHENG_NUM = 200
 
@@ -476,23 +476,23 @@ def getURLFromPool():
     
     url = None
     idx = None
-    keys = None
+    list_keys = None
     utype = None
 
     if len(url_list) > 0:
-        keys = url_list.keys()
+        list_keys = url_list
         utype = URL_TYPE.TYPE_URL
     elif len(img_urls) > 0:
-        keys = img_urls.keys()
+        list_keys = img_urls
         utype = URL_TYPE.TYPE_IMG
     elif len(video_urls) > 0:
-        keys = video_urls.keys()
+        list_keys = video_urls
         utype = URL_TYPE.TYPE_VIEDO
 
-    if len(keys) > 0:
-        url = list(keys)[0]
-        idx = url_list[url]
-        url_list.pop(url)
+    if len(list_keys.keys()) > 0:
+        url = list(list_keys.keys())[0]
+        idx = list_keys[url]
+        list_keys.pop(url)
     return url, idx, utype
 
 def popURLFromPool(url):
@@ -548,6 +548,64 @@ async def request_and_parse_new(url, idx):
 
         break
 
+async def request_and_parse_with_proxy(url, idx):
+
+    while True:
+        try:
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+                async with session.get(url, headers=HEADER, verify_ssl=False) as resp:
+#                    print('status: ', resp.status)
+                    
+                    if resp.status == 200:
+                        data = await resp.read()
+                        parse_url(data, idx)
+                    elif resp.status == 404:
+                        print('server error maybe, quit parse')
+                        break    
+                    else:
+                        for i in range(0, 40):
+                            print('retry it after {} seconds'.format((40-i)*10))
+                            await asyncio.sleep(10)
+                        continue
+
+        except Exception as e:
+            print('something happens on: ', url)
+            print(e)
+            await asyncio.sleep(5)
+
+        break
+
+async def download_single_with_proxy(url, idx):
+
+    fname = url.split(NAME_REFE)[0].split('/')[-1]
+    dirname = getdirname(idx)
+    folder = os.getcwd() + '/' + dirname
+
+    while True:
+
+        try:
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+                async with session.get(url, headers=HEADER, verify_ssl=False) as resp:
+                    data = await resp.read()
+                    if resp.status == 200:
+                        save_img(data, fname, folder)
+                    elif resp.status == 404:
+                        print('server error maybe, quit parse')
+                        break
+                    else:
+                        for i in range(0, 40):
+                            print('retry it after {} seconds'.format((40-i)*10))
+                            await asyncio.sleep(10)
+                        continue
+                                        
+        except Exception as e:
+            print('something happend')
+            print(e)
+            continue
+        break   
+
+    print(fname+' is saved')
+
 async def crawl_url(id):
 
     while True:
@@ -555,7 +613,13 @@ async def crawl_url(id):
         url, idx, url_type = getURLFromPool() 
 
         if url is not None:
-            await request_and_parse_new(url, idx)
+            if WITH_PROXY == True:
+                if url_type == URL_TYPE.TYPE_URL:
+                    await request_and_parse_with_proxy(url, idx)
+                else:
+                    await download_single_with_proxy(url, idx)
+            else:
+                await request_and_parse_new(url, idx)
         else:
             await asyncio.sleep(1)
 
