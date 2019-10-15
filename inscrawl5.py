@@ -14,24 +14,24 @@ import time
 from enum import Enum
 
 
-PAGE_NUM = 5
+PAGE_NUM = 0
 
-WITH_PROXY = True
+WITH_PROXY = False
 
 MAX_XIECHENG_NUM = 200
 
 URLS = [    'https://www.instagram.com/JayChou/',
-            #'https://www.instagram.com/b_b_j.j/',
+            'https://www.instagram.com/b_b_j.j/',
             #'https://www.instagram.com/cosmosdrone/',
             #'https://www.instagram.com/emiliaclarkee/',
-            #'https://www.instagram.com/nasa/',
+            'https://www.instagram.com/nasa/',
             'https://www.instagram.com/hannah_quinlivan/',
             #'https://www.instagram.com/stephencurry30/',
-            #'https://www.instagram.com/ashleybenson/',
+            'https://www.instagram.com/ashleybenson/',
             #'https://www.instagram.com/diawboris/',
             #'https://www.instagram.com/rogerfederer/',
             #'https://www.instagram.com/sleepinthegardn/',
-            #'https://www.instagram.com/chloegmoretz/',
+            'https://www.instagram.com/chloegmoretz/',
             #'https://www.instagram.com/victoriassecret/',
 
     ]
@@ -62,6 +62,11 @@ url_list = {}
 img_urls = {}
 video_urls = {}
 
+Img_Statistics = {}
+Video_Statistics = {}
+
+Error_Statistics = []
+
 user_id = {}
 PAGE_IDX = {}
 
@@ -72,7 +77,36 @@ proxy = {
 
 loop = None
 task_num = 0
+xchelper = []
 
+class XIECHENG_STATE(Enum):
+    STATE_IDLE = 0
+    STATE_BUSY = 1
+
+class XIECHENG_Helper():
+    
+    def __init__(self, id):
+        self.id = id
+        self.state = XIECHENG_STATE.STATE_IDLE
+        self.running = True
+
+    def getID(self):
+        return self.id    
+
+    def setState(self, state):
+        self.state = state
+
+    def getState(self):
+        return self.state
+
+    def isBusy(self):
+        return True if self.state == XIECHENG_STATE.STATE_BUSY else False
+
+    def setRunning(self, running):
+        self.running = running
+    
+    def getRunning(self):
+        return self.running
 
 def open_json(tar):
     js = None
@@ -234,7 +268,8 @@ def parseJSON(dict_idx, json):
             click.echo('json parsed by ' + approch.__name__)
         except KeyboardInterrupt as e:
             raise e            
-        except:
+        except Exception as ec:
+           # print(ec)
            #click.echo('cant parse, find next parse function')
             pass
 
@@ -275,40 +310,6 @@ async def request_url(url):
             
     url_list.pop(url)
 '''   
-async def request_and_parse(url, idx):
-    global loop, task_num
-
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=HEADER, timeout=3) as resp:
-                    print('status: ', resp.status)
-                    
-                    if resp.status == 200:
-                        data = await resp.read()
-                        parse_url(data, idx)
-                    elif resp.status == 404:
-                        print('server error maybe, quit parse')
-                        break    
-                    else:
-                        for i in range(0, 40):
-                            print('retry it after {} seconds'.format((40-i)*10))
-                            await asyncio.sleep(10)
-                        continue
-
-        except Exception as e:
-            print('something happens on: ', url)
-            print(e)
-            await asyncio.sleep(5)
-
-        break
-          
-    url_list.pop(url)
-    task_num -= 1
-
-    if task_num == 0: 
-        print('stop the loop!')
-        loop.stop()
 
 
 def save_img(con, fname, folder):
@@ -321,7 +322,6 @@ def save_img(con, fname, folder):
 
 async def download_single(url, idx):
 
-    global task_num, loop
     fname = url.split(NAME_REFE)[0].split('/')[-1]
     dirname = getdirname(idx)
     folder = os.getcwd() + '/' + dirname
@@ -349,10 +349,7 @@ async def download_single(url, idx):
             continue
         break   
 
-    print(fname+' is saved')
-    task_num -= 1
-    if task_num == 0: 
-        loop.stop()           
+    print(fname+' is saved')         
 
 def initial():
 
@@ -360,19 +357,21 @@ def initial():
         makedir(url)
         url_list[url] = url
         img_urls[url] = []
+        Img_Statistics[url] = []
         video_urls[url] = []
+        Video_Statistics[url] = []
         user_id[url] = []
         PAGE_IDX[url] = 0    
 
 def showParseRes():
 
-    global img_urls, video_urls
+    global Img_Statistics, Video_Statistics
 
     print('-------------------- crawl ins result --------------------')
     
-    for key in img_urls.keys():
+    for key in Img_Statistics.keys():
         print('------------------'+key+'------------------')
-        print('Images: '+str(len(img_urls[key]))+' Videos: '+str(len(video_urls[key])))
+        print('Images: '+str(len(Img_Statistics[key]))+' Videos: '+str(len(Video_Statistics[key])))
         print('-------------------------------------------')             
 
 def write_json_files(src, filename):
@@ -387,40 +386,6 @@ def url_save():
     write_json_files(img_urls, 'img_urls.json')
     write_json_files(video_urls, 'video_urls.json')
 
-def loop_callback():
-    print('I see what is callback')
-
-def crawl(loop):
-
-    global task_num
-
-    initial()
-    tasks = []
-
-    print(url_list)
-
-    while True:
-
-        if len(url_list) == 0:
-            break        
-        
-        tasks.clear()
-        for key in url_list.keys():
-            gen = request_and_parse(key, url_list[key])
-            tasks.append(gen)
-
-        task_num = len(tasks)
-        try:     
-            loop.create_task(asyncio.wait(tasks)) 
-#            loop.call_soon(loop_callback)      
-            loop.run_forever()
-        except Exception as e:
-            raise e
-    
-    showParseRes()  
-
-def down_init():
-    pass
 
 def getdirname(url):
     res = url.split(DIR_REFE)[1]
@@ -435,29 +400,6 @@ def makedir(key):
 
 
 
-def url_down(loop):
-    
-    global task_num
-
-    down_init()
-    tasks = []
-
-    for urls in img_urls, video_urls:
-        tasks.clear()
-        for key in urls.keys():
-            makedir(key)
-            for url in urls[key]:
-                gen = download_single(url, key)
-                tasks.append(gen)
-        
-        task_num = len(tasks)
-        
-        try: 
-            loop.create_task(asyncio.wait(tasks))       
-            loop.run_forever()
-        except Exception as e:
-            print(e)
-
 def interface():
     value = click.prompt('Start download? Y/N')
 
@@ -470,63 +412,70 @@ class URL_TYPE(Enum):
     TYPE_URL = 0
     TYPE_IMG = 1
     TYPE_VIEDO = 2
- 
-def getURLFromPool():
+
+def getURLFromURLPool():
     global url_list
+    url = list(url_list.keys())[0]
+    idx = url_list[url]
+    url_list.pop(url)
+    return url, idx, URL_TYPE.TYPE_URL
+
+def getURLFromDownloadPool(urltype):
+    global img_urls, video_urls
+    
+    if urltype == URL_TYPE.TYPE_IMG:
+        urls = img_urls
+        stat = Img_Statistics
+    else:
+        urls = video_urls
+        stat = Video_Statistics
+
+    url = None
+    idx = None
+    for lst in urls:
+        if len(urls[lst]) > 0:
+            url = urls[lst][0]
+            urls[lst].remove(url)
+            stat[lst].append(url)
+            idx = lst
+            break
+    
+    return url, idx, urltype
+
+def getDownloadURLLength(urltype):
+
+    if urltype == URL_TYPE.TYPE_IMG:
+        urls = img_urls
+    else:
+        urls = video_urls
+
+    length = 0
+    for lst in urls:
+        length += len(urls[lst])
+
+    return length
+
+def getURLFromPool():
     
     url = None
     idx = None
-    list_keys = None
-    utype = None
+    urltype = None
 
     if len(url_list) > 0:
-        list_keys = url_list
-        utype = URL_TYPE.TYPE_URL
-    elif len(img_urls) > 0:
-        list_keys = img_urls
-        utype = URL_TYPE.TYPE_IMG
-    elif len(video_urls) > 0:
-        list_keys = video_urls
-        utype = URL_TYPE.TYPE_VIEDO
+        url, idx, urltype = getURLFromURLPool()
+    elif getDownloadURLLength(URL_TYPE.TYPE_IMG) > 0:
+        url, idx, urltype =  getURLFromDownloadPool(URL_TYPE.TYPE_IMG)   
+    elif getDownloadURLLength(URL_TYPE.TYPE_VIEDO) > 0:
+        url, idx, urltype =  getURLFromDownloadPool(URL_TYPE.TYPE_VIEDO)
 
-    if len(list_keys.keys()) > 0:
-        url = list(list_keys.keys())[0]
-        idx = list_keys[url]
-        list_keys.pop(url)
-    return url, idx, utype
+    return url, idx, urltype
 
-def popURLFromPool(url):
-    url_list.pop(url)
-
-class XIECHENG_STATE(Enum):
-    STATE_IDLE = 0
-    STATE_BUSY = 1
-
-class XIECHENG_Helper():
-    
-    def __init__(self, id):
-        self.id = id
-        self.state = XIECHENG_STATE.STATE_IDLE
-
-    def getID(self):
-        return self.id    
-
-    def setState(self, state):
-        self.state = state
-
-    def getState(self):
-        return self.state
-
-    def isBusy(self):
-        return True if self.state == XIECHENG_STATE.STATE_BUSY else False
-
-
-async def request_and_parse_new(url, idx):
+async def request_and_parse(url, idx):
 
     while True:
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=HEADER, timeout=3) as resp:
+                async with session.get(url, headers=HEADER) as resp:
 #                    print('status: ', resp.status)
                     
                     if resp.status == 200:
@@ -560,6 +509,7 @@ async def request_and_parse_with_proxy(url, idx):
                         data = await resp.read()
                         parse_url(data, idx)
                     elif resp.status == 404:
+                        Error_Statistics[idx].append(url)
                         print('server error maybe, quit parse')
                         break    
                     else:
@@ -569,6 +519,7 @@ async def request_and_parse_with_proxy(url, idx):
                         continue
 
         except Exception as e:
+            Error_Statistics[idx].append(url)
             print('something happens on: ', url)
             print(e)
             await asyncio.sleep(5)
@@ -590,6 +541,7 @@ async def download_single_with_proxy(url, idx):
                     if resp.status == 200:
                         save_img(data, fname, folder)
                     elif resp.status == 404:
+                        Error_Statistics[idx].append(url)
                         print('server error maybe, quit parse')
                         break
                     else:
@@ -599,37 +551,77 @@ async def download_single_with_proxy(url, idx):
                         continue
                                         
         except Exception as e:
-            print('something happend')
+            Error_Statistics[idx].append(url)
+            print('download error on: ', url)
             print(e)
             continue
         break   
 
     print(fname+' is saved')
 
+def sendStopSignal():
+    
+    running = False
+    res = False
+    for xc in xchelper:
+        if xc.isBusy():
+            running = True
+            break
+
+    if running == False:
+        if len(url_list) == 0 and getDownloadURLLength(URL_TYPE.TYPE_IMG) == 0 and getDownloadURLLength(URL_TYPE.TYPE_VIEDO) == 0:
+            for xc in xchelper:
+                xc.setRunning(False)
+            res = True
+        else:
+            running = True
+
+    return res
+            
+
 async def crawl_url(id):
+
+    global loop
 
     while True:
 
         url, idx, url_type = getURLFromPool() 
 
         if url is not None:
+            xchelper[id].setState(XIECHENG_STATE.STATE_BUSY)
             if WITH_PROXY == True:
                 if url_type == URL_TYPE.TYPE_URL:
                     await request_and_parse_with_proxy(url, idx)
                 else:
                     await download_single_with_proxy(url, idx)
             else:
-                await request_and_parse_new(url, idx)
+                if url_type == URL_TYPE.TYPE_URL:
+                    await request_and_parse(url, idx)
+                else:
+                    await download_single(url, idx)
         else:
+            xchelper[id].setState(XIECHENG_STATE.STATE_IDLE)
             await asyncio.sleep(1)
 
+        if id == 0:
+            sendStopSignal()
+
+        if xchelper[id].getRunning() == False:
+            break
+#                loop.stop()
+
+def url_save():
+
+    write_json_files(Error_Statistics, 'error.json')
+    write_json_files(Img_Statistics, 'img_urls.json')
+    write_json_files(Video_Statistics, 'video_urls.json')
 
 def main(): 
 
     global loop
 
     tasks = []
-    xchelper = []
+    
     initial()
 
     for i in range(0, MAX_XIECHENG_NUM):
@@ -638,9 +630,13 @@ def main():
         tasks.append(gen)
         xchelper.append(xc)
 
-    loop = asyncio.get_event_loop() 
+    loop = asyncio.get_event_loop()
+#    loop.create_task(asyncio.wait(tasks)) 
+#    loop.run_forever()
     loop.run_until_complete(asyncio.wait(tasks))
-    #loop.run_until_complete(loop.shutdown_asyncgens())
+    showParseRes()
+    url_save()
+#    loop.run_until_complete(loop.shutdown_asyncgens())
     loop.close()
 
 if __name__ == "__main__":

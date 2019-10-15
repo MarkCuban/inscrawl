@@ -13,23 +13,23 @@ import click
 import time
 
 
-PAGE_NUM = 0
+PAGE_NUM = 1
 
 WITH_PROXY = False
 
-URLS = [    #'https://www.instagram.com/JayChou/',
-            'https://www.instagram.com/b_b_j.j/',
-            'https://www.instagram.com/cosmosdrone/',
-            'https://www.instagram.com/emiliaclarkee/',
-            'https://www.instagram.com/nasa/',
+URLS = [    'https://www.instagram.com/JayChou/',
+            #'https://www.instagram.com/b_b_j.j/',
+            #'https://www.instagram.com/cosmosdrone/',
+            #'https://www.instagram.com/emiliaclarkee/',
+            #'https://www.instagram.com/nasa/',
             'https://www.instagram.com/hannah_quinlivan/',
             #'https://www.instagram.com/stephencurry30/',
-            'https://www.instagram.com/ashleybenson/',
+            #'https://www.instagram.com/ashleybenson/',
             #'https://www.instagram.com/diawboris/',
             #'https://www.instagram.com/rogerfederer/',
             #'https://www.instagram.com/sleepinthegardn/',
             #'https://www.instagram.com/chloegmoretz/',
-            'https://www.instagram.com/victoriassecret/',
+            #'https://www.instagram.com/victoriassecret/',
 
     ]
 
