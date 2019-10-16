@@ -16,22 +16,22 @@ from enum import Enum
 
 PAGE_NUM = 0
 
-WITH_PROXY = False
+WITH_PROXY = True
 
 MAX_XIECHENG_NUM = 200
 
-URLS = [    'https://www.instagram.com/JayChou/',
+URLS = [    #'https://www.instagram.com/JayChou/',
             'https://www.instagram.com/b_b_j.j/',
             #'https://www.instagram.com/cosmosdrone/',
             #'https://www.instagram.com/emiliaclarkee/',
-            'https://www.instagram.com/nasa/',
-            'https://www.instagram.com/hannah_quinlivan/',
+            #'https://www.instagram.com/nasa/',
+            #'https://www.instagram.com/hannah_quinlivan/',
             #'https://www.instagram.com/stephencurry30/',
-            'https://www.instagram.com/ashleybenson/',
+            #'https://www.instagram.com/ashleybenson/',
             #'https://www.instagram.com/diawboris/',
             #'https://www.instagram.com/rogerfederer/',
             #'https://www.instagram.com/sleepinthegardn/',
-            'https://www.instagram.com/chloegmoretz/',
+            #'https://www.instagram.com/chloegmoretz/',
             #'https://www.instagram.com/victoriassecret/',
 
     ]
@@ -379,14 +379,6 @@ def write_json_files(src, filename):
         js_str = json.dumps(src, indent=4)
         f.write(js_str)   
 
-def url_save():
-    global img_urls, video_urls
-
-    #write_json_files(url_list, 'urls.json')
-    write_json_files(img_urls, 'img_urls.json')
-    write_json_files(video_urls, 'video_urls.json')
-
-
 def getdirname(url):
     res = url.split(DIR_REFE)[1]
     res = res.split('/')[0]
@@ -502,14 +494,14 @@ async def request_and_parse_with_proxy(url, idx):
     while True:
         try:
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-                async with session.get(url, headers=HEADER, verify_ssl=False) as resp:
+                async with session.get(url, headers=HEADER, verify_ssl=False, proxy='http://127.0.0.1:1087') as resp:
 #                    print('status: ', resp.status)
                     
                     if resp.status == 200:
                         data = await resp.read()
                         parse_url(data, idx)
                     elif resp.status == 404:
-                        Error_Statistics[idx].append(url)
+                        Error_Statistics.append(url)
                         print('server error maybe, quit parse')
                         break    
                     else:
@@ -519,7 +511,7 @@ async def request_and_parse_with_proxy(url, idx):
                         continue
 
         except Exception as e:
-            Error_Statistics[idx].append(url)
+            Error_Statistics.append(url)
             print('something happens on: ', url)
             print(e)
             await asyncio.sleep(5)
@@ -536,12 +528,12 @@ async def download_single_with_proxy(url, idx):
 
         try:
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-                async with session.get(url, headers=HEADER, verify_ssl=False) as resp:
+                async with session.get(url, headers=HEADER, verify_ssl=False, proxy='http://127.0.0.1:1087') as resp:
                     data = await resp.read()
                     if resp.status == 200:
                         save_img(data, fname, folder)
                     elif resp.status == 404:
-                        Error_Statistics[idx].append(url)
+                        Error_Statistics.append(url)
                         print('server error maybe, quit parse')
                         break
                     else:
@@ -551,7 +543,7 @@ async def download_single_with_proxy(url, idx):
                         continue
                                         
         except Exception as e:
-            Error_Statistics[idx].append(url)
+            Error_Statistics.append(url)
             print('download error on: ', url)
             print(e)
             continue
@@ -608,7 +600,6 @@ async def crawl_url(id):
 
         if xchelper[id].getRunning() == False:
             break
-#                loop.stop()
 
 def url_save():
 
